@@ -1,0 +1,232 @@
+---
+title: "Node.js・AWS Lambda・Amazon EventBridgeで定期的にツイートするBotを作ってみた！"
+emoji: "🤖"
+type: "tech" # tech: 技術記事 / idea: アイデア
+topics: ["Node", "AWS", "Lambda"]
+published: true
+---
+
+お仕事でAWSを扱う機会があり、AWSについて少し勉強していたら、AWS Lambdaを知りました。
+面白そうだったので、ちょっと勉強から脱線して...
+Node.js・AWS Lambda・Amazon EventBridgeを使って、定期的にツイートが実行されるBot開発に挑戦してみました！！
+折角なので、記事にして記録しておこうと思います！
+
+:::message
+この記事は、以下の対応が完了していることを前提として進めていきます。
+
+・AWSアカウントを作成していること。
+・Twitter Developer Portalにて、Appを作成していること。
+・作成したAppのApp Permissionsが**Read and write**に変更されていること。(デフォルトでは、Read。)
+・App Permissions変更後、API Key/API Secret、Access Token/Access Token Secretを再生成し、それらをメモしておくこと。
+→あとで使うため。
+・今回利用するTwitter APIは、v1なので、無料のElevatedの申請をしておくこと。
+→申請をSubmitしたらすぐに利用できました。
+:::
+
+# 作ったもの
+毎日、日本時間の19時になったら「今日もお疲れ様でした〜😆」とツイートするBotを開発しました。
+
+https://twitter.com/azunyan_eng/status/1521791810540302336?s=21&t=aULQThiid9qPha57EW9qfw
+
+# AWS Lambda
+早速、AWS Lambdaを使ってみたいと思います！
+## AWS Lambdaとは？
+サーバの構築や管理が不要で、ソースコードを作成してアップロードするだけで、プログラムを実行できるサービスです。
+C#や、Java、Node.js、Pythonなどの言語・実行環境が利用できます。
+
+## AWS Lambdaで関数を作る
+AWS Lambdaの関数ページで関数の作成ボタンをクリックすると以下の画像のようなページに遷移します。
+任意の関数名を入力し、ランタイムで``Node.js``を選択します。
+その他の部分は、デフォルトのままで特に問題はないかなと思うので、右下の「関数の作成」をクリックしてしまいます。
+![](https://storage.googleapis.com/zenn-user-upload/aacdcfcfc740-20220503.png)
+
+これで、AWS Lambda上で関数を作成することができました！
+
+# Twitter APIを利用してツイートできるようにする
+それでは、肝心のツイートを実行するためのコードを書いていきます。
+まず、Node.jsでTwitter APIを利用するためのnpmパッケージを導入します。
+```
+npm install --save twitter
+```
+
+あとでAWS Lambda上で設定する環境変数を用いて、認証を行います。
+```JavaScript
+const Twitter = require('twitter');
+
+const client = new Twitter({
+    consumer_key: process.env.CONSUMER_KEY,
+    consumer_secret: process.env.CONSUMER_SECRET,
+    access_token_key: process.env.ACCESS_TOKEN_KEY,
+    access_token_secret: process.env.ACCESS_TOKEN_SECRET,
+});
+```
+引数として渡しているオブジェクトのプロパティは以下の4つです。
+| キー名 | 値 | 
+| ---- | ---- |
+| consumer_key | API Key |
+| consumer_secret | API Secret |
+| access_token_key | Access Token |
+| access_token_secret | Access Token Secret |
+
+ツイートを実行する関数を作成していきます。``post``メソッドを使い、第1引数にendpointを指定し、第2引数にツイートする内容をオブジェクト形式で渡しています。
+同じ内容のツイートは複数回できないようになっているので、``new Date()``を使って生成した日付も一緒にツイートするようにしています。
+
+```JavaScript
+exports.handler = () => {
+    const date = new Date().toLocaleString('ja-JP');
+    const text = '今日もお疲れ様でした〜😆'
+    const tweetText = { status: `${text}\r\n${date}` }
+
+    client.post('statuses/update', tweetText, (error, tweet, response) => {
+        if (error) throw error;
+    });
+}
+```
+
+処理を記述したjsファイルとnode_modulesをまとめて.zipファイル化します。
+```
+zip -r 任意の.zipファイル名.zip ./初期を記述したファイル名.js ./node_modules/
+```
+
+# AWS Lambdaにデプロイする
+それでは、AWS Lambdaに作成したコードをデプロイしていきます！
+.zipファイルを直接AWS Lambdaにアップロードするか、S3に配置するかのどちらかで、ローカルで作成したソースコードをデプロイすることができます。
+コンテナイメージも利用できるようですが、割愛します。
+
+## .zipファイルのアップロード
+.zipファイルをアップロードします。
+AWS Lambdaの関数で、コードソースという部分があります。
+その部分の右上に「アップロード元」というボタンを探して、クリックすると、「.zipファイル」と「Amazon S3の場所」の2つの選択が出てくると思います。その2つのうち、「.zipファイル」を選択してください。
+![](https://storage.googleapis.com/zenn-user-upload/1ba6e5d55474-20220503.png)
+
+すると、.zipファイルをアップロードするためのモーダルが出てくるので、アップロードボタンを押して.zipファイルを選択し、保存してください。
+![](https://storage.googleapis.com/zenn-user-upload/50b94ce34628-20220503.png)
+
+これで、AWS Lambdaに.zipファイルをアップロードすることができました！
+
+## AWS Lambdaで環境変数を設定する
+設定ページに遷移し、環境変数を設定できるので、こちらで、先にメモしておいた、API Key/API Secret、Access Token/Access Token Secretを環境変数として登録します。
+![](https://storage.googleapis.com/zenn-user-upload/9b275f59b9f9-20220504.png)
+
+また、ツイート内に表示する時刻を合わせるために、タイムゾーンを環境変数で指定する必要がありました！
+キーを``TZ``に、値を``Asia/Tokyo``にして環境変数を追加してください。
+
+# Amazon EventBridge
+定期的にツイートするようにしたいので、EventBridgeを使って定期的に関数が動くように設定していきます。
+## Amazon EventBridgeとは？
+作成したルールと一致するイベントを受信したら、指定されたターゲットが呼び出されて処理が実行されるサービスです。
+Amazon CloudWatchで提供されているAmazon CloudWatch Eventsという機能を拡張したサービスが、今回使用するAmazon EventBridgeです。
+
+## 定期実行できるようにAmazon Event Bridgeを設定する
+AWS Lambdaの関数の概要部分に、「トリガーを追加」というボタンがあると思うので、クリックしてください。
+![](https://storage.googleapis.com/zenn-user-upload/f114095b4bce-20220504.png)
+
+トリガーとして、EventBridgeを選択してください。
+![](https://storage.googleapis.com/zenn-user-upload/2ae1d59f508e-20220504.png)
+
+ルールは、新規ルールの作成を選択します。任意のルール名を入力してください。
+今回は、特定の時間になるとツイートするようにしたいので、ルールタイプでは「**スケジュール式**」を選択します。
+![](https://storage.googleapis.com/zenn-user-upload/47512f6d44e8-20220504.png)
+
+スケジュール式の書き方は、**cron式**を利用します。
+
+## cronとは？
+``cron``とは、cron式で指定した時間になると、プログラムを実行してくれるツールです。
+バッチ処理のような、定期的にプログラムを実行する時などに使われたりします。
+
+cron式では、分や時間、日付など6つの要素を空白区切りで指定していきます。
+```
+cron(分 時間 日付 月 曜日 年)
+```
+今回の場合は、以下のようなcron式になりました。
+日付と曜日の両方にアスタリスク(✳︎)を指定することはできないことになっているので、日付には疑問符(?)を入れています。
+また、時間は、GMT(グリニッジ標準時)が採用されているので、``日本時間 - 9時間``をした値を入れます。
+日本時間で19時にツイートさせたいので、``19 - 9``で``10``を時間のフィールドに入れています。
+```
+cron(0 10 ? * * *)
+```
+何種類かワイルドカードがあるので、それらと値を組み合わせて指定していきます。
+以下が、ワイルドカードの例です。
+| ワイルドカード | 説明 | 
+| ---- | ---- |
+| ,(カンマ) | 値を追加する。 |
+| -(ダッシュ) | 範囲を指定する。 |
+| *(アスタリスク) | 全ての値。 |
+| /(スラッシュ) | 間隔を指定する。「10分経過ごと」など。 |
+| ?(疑問符) | 任意の値。特定の日付や曜日がない場合など。 |
+
+cron式について、[AWSの公式ドキュメント](https://docs.aws.amazon.com/ja_jp/ja_jp/eventbridge/latest/userguide/eb-create-rule-schedule.html#eb-cron-expressions)でも詳しく説明されているので、参照してみてください。
+
+# おまけ〜ローカルでテストしたい！〜
+AWS Lambdaでもテストはできるのですが、何度もアップロードしたくないですし、できればローカルでテストしたいと思いますよね。
+その場合、API Key/API Secret、Access Token/Access Token Secretを、``.env``ファイルに記述し、環境変数にしておきます。
+また、Node.jsでは``.env``ファイルを読み込むためには、``dotenv``というパッケージが必要です。このパッケージを利用するため、先頭に以下の記述を追加します。
+```JavaScript
+require("dotenv").config();
+```
+認証部分は、同じコードで問題ないのですが、ツイート実行部分のコードが異なります。
+AWS Lambdaで利用するために``exports``していましたが、ローカルでは不要です。
+``const``を使って関数を定義して実行するようにしています。
+```JavaScript
+const handler = () => {
+    const date = new Date().toLocaleString('ja-JP');
+    const text = '今日もお疲れ様でした〜😆'
+    const tweetText = { status: `${text}\r\n${date}` }
+
+    client.post('statuses/update', tweetText, (error, tweet, response) => {
+        if (error) throw error;
+        console.log(tweet);
+        console.log(response);
+    });
+}
+
+handler();
+```
+ローカル実行時のコード全体は、以下のようになります。
+```JavaScript
+const Twitter = require('twitter');
+require("dotenv").config(); // ローカル実行時に必要。
+
+// 認証
+const client = new Twitter({
+    consumer_key: process.env.CONSUMER_KEY,
+    consumer_secret: process.env.CONSUMER_SECRET,
+    access_token_key: process.env.ACCESS_TOKEN_KEY,
+    access_token_secret: process.env.ACCESS_TOKEN_SECRET,
+});
+
+// ツイートするための関数
+const handler = () => {
+    const date = new Date().toLocaleString('ja-JP');
+    const text = '今日もお疲れ様でした〜😆'
+    const tweetText = { status: `${text}\r\n${date}` }
+
+    client.post('statuses/update', tweetText, (error, tweet, response) => {
+        if (error) throw error;
+        console.log(tweet);
+        console.log(response);
+    });
+}
+
+// 定義した関数を実行！
+handler();
+```
+
+# 感想
+今回は、AWS LambdaとAmazon EventBridgeを利用して、定期的に特定の言葉をツイートするBot開発に挑戦してみました！
+普段は、Reactを使って開発をしていることが多いのですが、Node.jsを利用している場合には、``.env``ファイルを読み込むために別途``dotenv``というパッケージの導入が必要だということを知らなかったので、勉強になりました。
+ちょっと気になるのは、最小単位が「分」であるcronで指定しているからか、指定した時刻の0秒ちょうどではなく、数十秒遅延して実行されている点です。しかも、いつも同じ秒数遅延している訳ではなさそう。秒単位を無視すれば、きちんと時刻通りに実行されています。
+まだまだAWSは勉強中ですが、このように実際にサービスを利用しながら勉強してみると、とても楽しいですね〜！
+
+もし、認識の誤り・補足などがあれば、是非、コメントして頂けますと助かります〜！
+
+お読みくださり、ありがとうございました！！
+
+# 参考資料
+[お役立ち Twitter Bot を作りながら学ぶ AWS ドリル ~第 1 回 おはよう Bot 編](https://aws.amazon.com/jp/builders-flash/202201/aws-drill-twitter-bot-1/?awsf.filter-name=*all)
+[npm twitter](https://www.npmjs.com/package/twitter)
+[node-twitter Examples](https://github.com/desmondmorris/node-twitter/tree/master/examples)
+[AWS Lambdaとは](https://docs.aws.amazon.com/ja_jp/ja_jp/lambda/latest/dg/welcome.html)
+[Lambda デプロイパッケージ](https://docs.aws.amazon.com/ja_jp/lambda/latest/dg/gettingstarted-package.html)
+[Amazon EventBridgeとは](https://docs.aws.amazon.com/ja_jp/ja_jp/eventbridge/latest/userguide/eb-what-is.html)
+[cron LPI-Japan](https://linuc.org/study/knowledge/368/)
