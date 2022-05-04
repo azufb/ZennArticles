@@ -3,7 +3,7 @@ title: "Node.js・AWS Lambda・Amazon EventBridgeで定期的にツイートす�
 emoji: "🤖"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["Node", "AWS", "Lambda"]
-published: true
+published: false
 ---
 
 お仕事でAWSを扱う機会があり、AWSについて少し勉強していたら、AWS Lambdaを知りました。
